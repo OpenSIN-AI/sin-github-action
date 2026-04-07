@@ -1,0 +1,93 @@
+name: 'sin-github-action'
+description: 'Delegate CI/CD from GitHub Actions to self-hosted n8n — zero billing'
+author: 'OpenSIN-AI'
+
+branding:
+  icon: 'zap'
+  color: 'blue'
+
+inputs:
+  n8n_webhook_url:
+    description: 'Full n8n webhook URL for CI pipeline'
+    required: true
+  github_token:
+    description: 'GitHub token for posting commit status'
+    required: true
+  repo:
+    description: 'Repository (owner/repo)'
+    required: false
+    default: ${{ github.repository }}
+  sha:
+    description: 'Commit SHA to report status on'
+    required: false
+    default: ${{ github.sha }}
+  ref:
+    description: 'Git ref being built'
+    required: false
+    default: ${{ github.ref }}
+  event:
+    description: 'GitHub event name'
+    required: false
+    default: ${{ github.event_name }}
+  pipeline:
+    description: 'Pipeline name to run (build|test|lint|security|all)'
+    required: false
+    default: 'all'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set pending commit status
+      shell: bash
+      run: |
+        curl -s -X POST \
+          -H "Authorization: token ${{ inputs.github_token }}" \
+          -H "Content-Type: application/json" \
+          "https://api.github.com/repos/${{ inputs.repo }}/statuses/${{ inputs.sha }}" \
+          -d '{
+            "state": "pending",
+            "context": "n8n-ci / ${{ inputs.pipeline }}",
+            "description": "Dispatched to n8n OCI runner...",
+            "target_url": "https://n8n.delqhi.com"
+          }'
+
+    - name: Dispatch to n8n CI webhook
+      shell: bash
+      run: |
+        RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+          -H "Content-Type: application/json" \
+          "${{ inputs.n8n_webhook_url }}" \
+          -d '{
+            "repo": "${{ inputs.repo }}",
+            "sha": "${{ inputs.sha }}",
+            "ref": "${{ inputs.ref }}",
+            "event": "${{ inputs.event }}",
+            "pipeline": "${{ inputs.pipeline }}",
+            "github_token": "${{ inputs.github_token }}",
+            "run_id": "${{ github.run_id }}",
+            "actor": "${{ github.actor }}"
+          }')
+        
+        HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+        BODY=$(echo "$RESPONSE" | head -1)
+        
+        echo "n8n response: $HTTP_CODE — $BODY"
+        
+        if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "201" ]; then
+          echo "❌ n8n webhook failed with HTTP $HTTP_CODE"
+          # Post failure status
+          curl -s -X POST \
+            -H "Authorization: token ${{ inputs.github_token }}" \
+            -H "Content-Type: application/json" \
+            "https://api.github.com/repos/${{ inputs.repo }}/statuses/${{ inputs.sha }}" \
+            -d "{
+              \"state\": \"failure\",
+              \"context\": \"n8n-ci / ${{ inputs.pipeline }}\",
+              \"description\": \"n8n webhook unreachable (HTTP $HTTP_CODE)\",
+              \"target_url\": \"https://n8n.delqhi.com\"
+            }"
+          exit 1
+        fi
+        
+        echo "✅ Dispatched to n8n — build running on OCI VM"
+        echo "n8n will post final commit status when done."

@@ -1,0 +1,186 @@
+{
+  "name": "OpenSIN CI Pipeline (n8n)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "opensin-ci",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "GitHub CI Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "opensin-ci-pipeline"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"accepted\", \"message\": \"CI pipeline dispatched to OCI runner\", \"sha\": $json.sha, \"repo\": $json.repo }",
+        "options": {}
+      },
+      "id": "respond-immediately",
+      "name": "Respond 200 Immediately",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [460, 200]
+    },
+    {
+      "parameters": {
+        "command": "=cd /home/ubuntu && bash -c '\n  set -e\n  REPO=\"{{ $json.repo }}\"\n  SHA=\"{{ $json.sha }}\"\n  REF=\"{{ $json.ref }}\"\n  PIPELINE=\"{{ $json.pipeline }}\"\n  \n  echo \"=== OpenSIN CI Runner ===\"\n  echo \"Repo: $REPO | SHA: $SHA | Pipeline: $PIPELINE\"\n  \n  # Clone or update repo\n  WORK_DIR=\"/tmp/sin-ci/${SHA}\"\n  mkdir -p \"$WORK_DIR\"\n  cd \"$WORK_DIR\"\n  \n  if [ ! -d \".git\" ]; then\n    git clone --depth=1 \"https://github.com/${REPO}.git\" . 2>&1\n  else\n    git fetch origin && git reset --hard \"$SHA\" 2>&1\n  fi\n  \n  # Install deps\n  npm ci --prefer-offline 2>&1 || npm install 2>&1\n  \n  # Run pipeline\n  RESULT=0\n  LOG=\"\"\n  \n  if [ \"$PIPELINE\" = \"build\" ] || [ \"$PIPELINE\" = \"all\" ]; then\n    echo \"--- BUILD ---\"\n    npm run build 2>&1 && echo \"BUILD: ✅\" || { RESULT=1; LOG=\"$LOG Build failed.\"; echo \"BUILD: ❌\"; }\n  fi\n  \n  if [ \"$PIPELINE\" = \"lint\" ] || [ \"$PIPELINE\" = \"all\" ]; then\n    echo \"--- LINT ---\"\n    npm run lint 2>&1 && echo \"LINT: ✅\" || { LOG=\"$LOG Lint failed.\"; echo \"LINT: ❌ (non-blocking)\"; }\n  fi\n  \n  if [ \"$PIPELINE\" = \"test\" ] || [ \"$PIPELINE\" = \"all\" ]; then\n    echo \"--- TEST ---\"\n    npm test -- --passWithNoTests 2>&1 && echo \"TEST: ✅\" || { RESULT=1; LOG=\"$LOG Tests failed.\"; echo \"TEST: ❌\"; }\n  fi\n  \n  # Cleanup\n  cd /tmp && rm -rf \"$WORK_DIR\"\n  \n  echo \"EXIT_CODE=$RESULT\"\n  echo \"LOG=$LOG\"\n  exit $RESULT\n'"
+      },
+      "id": "run-on-oci",
+      "name": "Run CI on OCI VM",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [460, 400]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/repos/{{ $('GitHub CI Webhook').item.json.repo }}/statuses/{{ $('GitHub CI Webhook').item.json.sha }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            },
+            {
+              "name": "X-GitHub-Api-Version",
+              "value": "2022-11-28"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "state",
+              "value": "success"
+            },
+            {
+              "name": "context",
+              "value": "=n8n-ci / {{ $('GitHub CI Webhook').item.json.pipeline }}"
+            },
+            {
+              "name": "description",
+              "value": "✅ Build passed on OCI runner"
+            },
+            {
+              "name": "target_url",
+              "value": "https://n8n.delqhi.com"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "post-success-status",
+      "name": "Post Success Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 300]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/repos/{{ $('GitHub CI Webhook').item.json.repo }}/statuses/{{ $('GitHub CI Webhook').item.json.sha }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "state",
+              "value": "failure"
+            },
+            {
+              "name": "context",
+              "value": "=n8n-ci / {{ $('GitHub CI Webhook').item.json.pipeline }}"
+            },
+            {
+              "name": "description",
+              "value": "❌ Build failed on OCI runner"
+            },
+            {
+              "name": "target_url",
+              "value": "https://n8n.delqhi.com"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "post-failure-status",
+      "name": "Post Failure Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 500]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "exit-code-check",
+              "leftValue": "={{ $json.exitCode }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-result",
+      "name": "Build Passed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [460, 400]
+    }
+  ],
+  "connections": {
+    "GitHub CI Webhook": {
+      "main": [
+        [
+          { "node": "Respond 200 Immediately", "type": "main", "index": 0 },
+          { "node": "Run CI on OCI VM", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Run CI on OCI VM": {
+      "main": [
+        [{ "node": "Build Passed?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Passed?": {
+      "main": [
+        [{ "node": "Post Success Status", "type": "main", "index": 0 }],
+        [{ "node": "Post Failure Status", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": ["ci", "github", "opensin"]
+}
