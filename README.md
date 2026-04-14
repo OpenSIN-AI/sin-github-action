@@ -4,6 +4,20 @@
 
 Instead of running expensive GitHub-hosted runners, this action simply POSTs your push/PR payload to a self-hosted n8n webhook on OCI. n8n handles the actual build, test, lint — and posts commit status back to GitHub.
 
+## 🚨 ABSOLUTES VERBOT FÜR NORMALE GITHUB ACTIONS
+
+**NIEMALS normale GitHub Actions Runner von GitHub nutzen!** GitHub Actions Billing blockiert unsere Pipelines. Die gesamte OpenSIN-AI Organisation setzt ausschließlich auf **n8n + sin-github-action** mit OCI Always-Free VM.
+
+## Mandatory Setup for All OpenSIN-AI Repos
+
+Every repository **must**:
+
+1. Store secret `N8N_CI_WEBHOOK_URL` → `http://92.5.60.87:5678/webhook/opensin-ci`
+2. Use the exact `ci.yml` example below
+3. Never use `runs-on: self-hosted` or any GitHub-hosted runners that incur billing
+
+Violations will be flagged by the CEO Audit and blocked from merging.
+
 ## Architecture
 
 ```
