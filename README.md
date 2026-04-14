@@ -61,3 +61,19 @@ jobs:
 ## Why
 
 GitHub Actions billing was blocking our CI on OpenSIN-AI. n8n runs 24/7 on our OCI VM (always-free tier) — unlimited builds, zero cost.
+
+
+---
+
+## Agent Configuration System (v5)
+
+This project is part of the OpenSIN-AI agent ecosystem:
+
+### Subagenten-Modelle
+
+| Subagent | Modell |
+|:---|:---|
+| **explore** | `nvidia-nim/stepfun-ai/step-3.5-flash` |
+| **librarian** | `nvidia-nim/stepfun-ai/step-3.5-flash` |
+
+→ [Full Documentation](https://github.com/OpenSIN-AI/OpenSIN-documentation/blob/main/docs/guide/agent-configuration.md)
